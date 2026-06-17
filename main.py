@@ -6,7 +6,7 @@ from typing_extensions import Annotated
 import pandas as pd
 import json
 
-
+# A Pydantic model is a class. More precisely:A Pydantic model is a Python class that inherits from pydantic.BaseModel.
 class patient(BaseModel):
     id:Annotated[str,Field(...,description='this is the unique id given to patient must be strig as well')]
     name:Annotated[str,Field(...,description='name of the patient must be string')]
@@ -15,18 +15,17 @@ class patient(BaseModel):
     gender:Annotated[Literal['male','female','others'],Field(...,description='gender of the patients')]
     height:Annotated[float,Field(...,gt=0,description='height of the patient')]
     weight:Annotated[float,Field(...,gt=0,description='weight of the patient')]   
-
+    
     # Store data that is a source of truth. Compute data that is derived from it.
     @computed_field
     @property
     def bmi(self) ->float:
-        bmi=round((self.weight/self.height**2),2)
+        bmi=round(self.weight/(self.height**2),2)
         return bmi
 
     @computed_field
     @property
     def verdict(self) ->str:
-
         if self.bmi < 18.5:
             return 'Underweight'
         elif self.bmi < 25:
@@ -35,7 +34,17 @@ class patient(BaseModel):
             return 'Normal'
         else:
             return 'Obese'
-    
+
+# new pydantic model to edit cause feilds are optional here
+class patient_update(BaseModel):
+    name:Annotated[Optional[str],Field(default=None)]
+    city:Annotated[Optional[str],Field(default=None)]
+    age:Annotated[Optional[int],Field(default=None)]
+    gender:Annotated[Optional[Literal['male','female','others']],Field(default=None)]
+    height: Annotated[Optional[float], Field(default=None, gt=0)]
+    weight: Annotated[Optional[float], Field(default=None, gt=0)]
+
+
       
 def load_data():
     with open('patients.json','r') as f:
@@ -44,7 +53,7 @@ def load_data():
 
 def save_data(data):
     with open('patients.json','w') as f:
-        json.dump(data,f,indent=2)
+        json.dump(data,f)
 
 app=FastAPI()
 
@@ -104,3 +113,32 @@ def create_patient(patient:patient):
 
     #raise json response
     return JSONResponse(status_code=201,content='patient created successfully')
+
+
+@app.put('/edit/{id}')
+def update_patient(id:str,patient_update:patient_update):
+    data=load_data()
+
+    if id not in data:
+        raise HTTPException(status_code=404,detail='patient id does not exist')
+    
+    existing_patient_info=data[id]
+    updated_patient_info=patient_update.model_dump(exclude_unset=True)
+
+    for key,value in updated_patient_info.items():
+        existing_patient_info[key]=value
+
+    # cant add this to database coz it doesnt contain bmi and verdict
+    # so existing_patient_onfo->pyadantic obj(bmi & verdict will be upfated)
+    existing_patient_info['id']=id
+    patient_pydnt_obj=patient(**existing_patient_info)
+    # pydnt_obj->dict
+    existing_patient_info=patient_pydnt_obj.model_dump(exclude='id')
+
+    # add this dict to data
+    data[id]=existing_patient_info
+
+    # save data
+    save_data(data)
+
+    return JSONResponse(status_code=200,content='patient updated')
